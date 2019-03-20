@@ -181,17 +181,15 @@ def train(use_cuda, params_dirname):
         ]
         feeder_test = fluid.DataFeeder(feed_list=feed_var_list, place=place)
         test_exe = fluid.Executor(place)
-        accumulated = len([avg_cost, scale_infer]) * [0]
+        accumulated = 0
         for test_data in reader():
             avg_cost_np = test_exe.run(
                 program=program,
                 feed=feeder_test.feed(test_data),
-                fetch_list=[avg_cost, scale_infer])
-            accumulated = [
-                x[0] + x[1][0] for x in zip(accumulated, avg_cost_np)
-            ]
+                fetch_list=[avg_cost])
+            accumulated += avg_cost_np[0]
             count += 1
-        return [x / count for x in accumulated]
+        return accumulated / count
 
     def train_loop():
         feed_list = [
@@ -209,11 +207,8 @@ def train(use_cuda, params_dirname):
                     fetch_list=[avg_cost])
                 out = np.array(outs[0])
 
-                avg_cost_set = train_test(test_program, test_reader)
-
                 # get test avg_cost
-                test_avg_cost = np.array(avg_cost_set).mean()
-                print("avg_cost: %s" % test_avg_cost)
+                test_avg_cost = train_test(test_program, test_reader)
 
                 # if test_avg_cost < 4.0: # Change this number to adjust accuracy
                 if batch_id == 20:
@@ -223,9 +218,8 @@ def train(use_cuda, params_dirname):
                             "movie_id", "category_id", "movie_title"
                         ], [scale_infer], exe)
                     return
-                else:
-                    print('BatchID {0}, Test Loss {1:0.2}'.format(
-                        pass_id + 1, float(test_avg_cost)))
+                print('EpochID {0}, BatchID {1}, Test Loss {2:0.2}'.format(
+                    pass_id + 1, batch_id + 1, float(test_avg_cost)))
 
                 if math.isnan(float(out[0])):
                     sys.exit("got NaN loss, training failed.")
@@ -271,26 +265,28 @@ def infer(use_cuda, params_dirname):
         # Correspondingly, recursive_sequence_lengths = [[3, 2]] contains one
         # level of detail info, indicating that `data` consists of two sequences
         # of length 3 and 2, respectively.
-        user_id = fluid.create_lod_tensor([[1]], [[1]], place)
+        user_id = fluid.create_lod_tensor([[np.int64(1)]], [[1]], place)
 
         assert feed_target_names[1] == "gender_id"
-        gender_id = fluid.create_lod_tensor([[1]], [[1]], place)
+        gender_id = fluid.create_lod_tensor([[np.int64(1)]], [[1]], place)
 
         assert feed_target_names[2] == "age_id"
-        age_id = fluid.create_lod_tensor([[0]], [[1]], place)
+        age_id = fluid.create_lod_tensor([[np.int64(0)]], [[1]], place)
 
         assert feed_target_names[3] == "job_id"
-        job_id = fluid.create_lod_tensor([[10]], [[1]], place)
+        job_id = fluid.create_lod_tensor([[np.int64(10)]], [[1]], place)
 
         assert feed_target_names[4] == "movie_id"
-        movie_id = fluid.create_lod_tensor([[783]], [[1]], place)
+        movie_id = fluid.create_lod_tensor([[np.int64(783)]], [[1]], place)
 
         assert feed_target_names[5] == "category_id"
-        category_id = fluid.create_lod_tensor([[10, 8, 9]], [[3]], place)
+        category_id = fluid.create_lod_tensor(
+            [np.array([10, 8, 9], dtype='int64')], [[3]], place)
 
         assert feed_target_names[6] == "movie_title"
-        movie_title = fluid.create_lod_tensor([[1069, 4140, 2923, 710, 988]],
-                                              [[5]], place)
+        movie_title = fluid.create_lod_tensor(
+            [np.array([1069, 4140, 2923, 710, 988], dtype='int64')], [[5]],
+            place)
 
         # Construct feed as a dictionary of {feed_target_name: feed_target_data}
         # and results will contain a list of data corresponding to fetch_targets.
